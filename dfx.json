@@ -1,4 +1,5 @@
 {
+
    "canisters": {
        "blockchain_based_skill_verification_system": {
            "type": "custom",
@@ -10,3 +11,4 @@
        }
    }
 }
+

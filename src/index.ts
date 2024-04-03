@@ -1,9 +1,12 @@
+
 import { $query, $update, Record, StableBTreeMap, Vec, Result, nat64, ic, Opt } from 'azle';
+
 import { v4 as uuidv4 } from 'uuid';
 
 // Define types for SkillRecord and SkillPayload
 type SkillRecord = Record<{
     id: string;
+
     name: string;
     proficiency: string;
     createdAt: nat64;
@@ -12,6 +15,7 @@ type SkillRecord = Record<{
 type SkillPayload = Record<{
     name: string;
     proficiency: string;
+
 }>
 
 // Create a map to store skill records
@@ -19,14 +23,17 @@ const skillStorage = new StableBTreeMap<string, SkillRecord>(0, 44, 1024);
 
 $update;
 export function addSkill(payload: SkillPayload): Result<SkillRecord, string> {
+
     const record: SkillRecord = { 
         id: uuidv4(), 
         createdAt: ic.time(), 
         ...payload 
     };
+
     skillStorage.insert(record.id, record);
     return Result.Ok(record);
 }
+
 
 // Function to get all skills
 $query;
@@ -76,6 +83,7 @@ export function deleteSkill(id: string): Result<void, string> {
         return Result.Err(`Skill with id=${id} not found`);
     }
 }
+
 // A workaround to make the uuid package work with Azle
 globalThis.crypto = {
     // @ts-ignore
@@ -88,4 +96,6 @@ globalThis.crypto = {
 
         return array;
     },
+
 };
+
