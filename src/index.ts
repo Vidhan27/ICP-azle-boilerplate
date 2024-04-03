@@ -1,89 +1,99 @@
-// Import necessary modules
+import { $query, $update, Record, StableBTreeMap, Vec, match, Result, nat64, ic, Opt } from 'azle';
 import { v4 as uuidv4 } from 'uuid';
-import { Server, StableBTreeMap, ic } from 'azle';
-import express from 'express';
 
-/**
- * This type represents a skill record in the blockchain.
- */
-class SkillRecord {
+// Define types for SkillRecord and SkillPayload
+type SkillRecord = Record<{
     id: string;
     skill: string;
     owner: string; // Representing the owner's identifier (e.g., user ID)
     verified: boolean;
     verifier: string; // Representing the verifier's identifier (e.g., organization ID)
-    createdAt: Date;
-    updatedAt: Date | null;
+    createdAt: nat64;
+    updatedAt: Opt<nat64>;
+}>
+
+type SkillPayload = Record<{
+    skill: string;
+    owner: string;
+    verifier?: string;
+}>
+
+// Create a map to store skill records
+const skillStorage = new StableBTreeMap<string, SkillRecord>(0, 44, 1024);
+
+$update;
+export function addSkill(payload: SkillPayload): Result<SkillRecord, string> {
+    const record: SkillRecord = { id: uuidv4(), createdAt: ic.time(), updatedAt: Opt.None, ...payload, verified: false };
+    skillStorage.insert(record.id, record);
+    return Result.Ok(record);
 }
 
-// Initialize the storage for skill records
-const skillRecordsStorage = StableBTreeMap<string, SkillRecord>(0);
-
-// Initialize the express application
-export default Server(() => {
-    const app = express();
-    app.use(express.json());
-
-    // Endpoint to add a new skill record to the blockchain
-    app.post("/skill-records", (req, res) => {
-        const skillRecord: SkillRecord = {
-            id: uuidv4(),
-            createdAt: getCurrentDate(),
-            ...req.body,
-            verified: false, // By default, newly added skill records are not verified
-            verifier: "",    // Initialize verifier as empty string
-        };
-        skillRecordsStorage.insert(skillRecord.id, skillRecord);
-        res.json(skillRecord);
+$update;
+export function updateSkill(id: string, payload: SkillPayload): Result<SkillRecord, string> {
+    return match(skillStorage.get(id), {
+        Some: (record) => {
+            const updatedRecord: SkillRecord = { ...record, ...payload, updatedAt: Opt.Some(ic.time()) };
+            skillStorage.insert(record.id, updatedRecord);
+            return Result.Ok(updatedRecord);
+        },
+        None: () => Result.Err<SkillRecord, string>(`Skill with id=${id} not found`)
     });
+}
 
-    // Endpoint to get all skill records from the blockchain
-    app.get("/skill-records", (req, res) => {
-        res.json(skillRecordsStorage.values());
+$update;
+export function deleteSkill(id: string): Result<SkillRecord, string> {
+    return match(skillStorage.remove(id), {
+        Some: (deletedRecord) => Result.Ok<SkillRecord, string>(deletedRecord),
+        None: () => Result.Err<SkillRecord, string>(`Skill with id=${id} not found`)
     });
+}
 
-    // Endpoint to get a specific skill record by ID
-    app.get("/skill-records/:id", (req, res) => {
-        const skillRecordId = req.params.id;
-        const skillRecordOpt = skillRecordsStorage.get(skillRecordId);
-        if ("None" in skillRecordOpt) {
-            res.status(404).send(`Skill record with id=${skillRecordId} not found`);
-        } else {
-            res.json(skillRecordOpt.Some);
-        }
+$query;
+export function getSkill(id: string): Result<SkillRecord, string> {
+    return match(skillStorage.get(id), {
+        Some: (record) => Result.Ok<SkillRecord, string>(record),
+        None: () => Result.Err<SkillRecord, string>(`Skill with id=${id} not found`)
     });
+}
 
-    // Endpoint to update a skill record (e.g., to verify or modify skills)
-    app.put("/skill-records/:id", (req, res) => {
-        const skillRecordId = req.params.id;
-        const skillRecordOpt = skillRecordsStorage.get(skillRecordId);
-        if ("None" in skillRecordOpt) {
-            res.status(400).send(`Couldn't update skill record with id=${skillRecordId}. Record not found`);
-        } else {
-            const skillRecord = skillRecordOpt.Some;
-            const updatedSkillRecord = {
-                ...skillRecord,
-                ...req.body,
-                updatedAt: getCurrentDate()
-            };
-            skillRecordsStorage.insert(skillRecord.id, updatedSkillRecord);
-            res.json(updatedSkillRecord);
-        }
+$query;
+export function getSkills(): Result<Vec<SkillRecord>, string> {
+    return Result.Ok(skillStorage.values());
+}
+
+// Function to search skills by skill name
+$query;
+export function searchSkillsBySkillName(skillName: string): Result<Vec<SkillRecord>, string> {
+    const records = skillStorage.values();
+    const filteredSkills = records.filter(skill => skill.skill.toLowerCase().includes(skillName.toLowerCase()));
+    return Result.Ok(filteredSkills);
+}
+
+// Function to filter skills by owner
+$query;
+export function filterSkillsByOwner(owner: string): Result<Vec<SkillRecord>, string> {
+    const records = skillStorage.values();
+    const filteredSkills = records.filter(skill => skill.owner === owner);
+    return Result.Ok(filteredSkills);
+}
+
+// Function to verify a skill record
+$update;
+export function verifySkill(id: string, verifier: string): Result<SkillRecord, string> {
+    return match(skillStorage.get(id), {
+        Some: (record) => {
+            const updatedRecord: SkillRecord = { ...record, verified: true, verifier, updatedAt: Opt.Some(ic.time()) };
+            skillStorage.insert(record.id, updatedRecord);
+            return Result.Ok(updatedRecord);
+        },
+        None: () => Result.Err<SkillRecord, string>(`Skill with id=${id} not found`)
     });
+}
 
-    // Endpoint to delete a skill record from the blockchain
-    app.delete("/skill-records/:id", (req, res) => {
-        const skillRecordId = req.params.id;
-        const deletedSkillRecord = skillRecordsStorage.remove(skillRecordId);
-        if ("None" in deletedSkillRecord) {
-            res.status(400).send(`Couldn't delete skill record with id=${skillRecordId}. Record not found`);
-        } else {
-            res.json(deletedSkillRecord.Some);
-        }
-    });
-
-    return app.listen();
-}); // End of Server function
+// Function to get the current date
+function getCurrentDate() {
+    return new Date(ic.time().toNumber() / 1000000);
+}
 
 // Function to get the current date
 function getCurrentDate() {
